@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PortalMMO 🛸</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+  <style>
+    body {
+      background: #0a0a0a;
+      color: #00ff7f;
+      font-family: monospace;
+      padding: 20px;
+    }
+    h1 { color: #00ff7f; }
+    input {
+      background: #1a1a1a;
+      border: 1px solid #00ff7f;
+      color: #00ff7f;
+      padding: 8px;
+      margin: 5px;
+      border-radius: 4px;
+    }
+    button {
+      background: #00ff7f;
+      color: #0a0a0a;
+      border: none;
+      padding: 8px 16px;
+      margin: 5px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    #log {
+      background: #1a1a1a;
+      border: 1px solid #00ff7f;
+      padding: 10px;
+      height: 200px;
+      overflow-y: auto;
+      margin-top: 20px;
+      border-radius: 4px;
+    }
+    #chat {
+      background: #1a1a1a;
+      border: 1px solid #00ff7f;
+      padding: 10px;
+      height: 150px;
+      overflow-y: auto;
+      margin-top: 10px;
+      border-radius: 4px;
+    }
+    #players {
+      background: #1a1a1a;
+      border: 1px solid #00ff7f;
+      padding: 10px;
+      margin-top: 10px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🛸 PortalMMO</h1>
+
+  <!-- Login/Register -->
+  <div id="authSection">
+    <h2>Accedi al Multiverso</h2>
+    <input type="text" id="username" placeholder="Username" />
+    <input type="password" id="password" placeholder="Password" />
+    <br>
+    <button onclick="register()">Registrati</button>
+    <button onclick="login()">Accedi</button>
+  </div>
+
+  <!-- Gioco -->
+  <div id="gameSection" style="display:none">
+    <h2 id="welcomeMsg"></h2>
+    <p>Giocatori online: <span id="onlineCount">0</span></p>
+    <div id="players">Nessun giocatore online</div>
+
+    <!-- Chat -->
+    <h3>Chat Globale 💬</h3>
+    <div id="chat"></div>
+    <input type="text" id="chatInput" placeholder="Scrivi un messaggio..." />
+    <button onclick="sendChat()">Invia</button>
+  </div>
+
+  <!-- Log -->
+  <div id="log"></div>
+
+  <script>
+    const socket = io('http://localhost:3000');
+    let currentUser = null;
+    let token = null;
+
+    function addLog(msg) {
+      const log = document.getElementById('log');
+      log.innerHTML += `<div>> ${msg}</div>`;
+      log.scrollTop = log.scrollHeight;
+    }
+
+    async function register() {
+      const username = document.getElementById('username').value;
+      const password = document.getElementById('password').value;
+      
+      const res = await fetch('http://localhost:3000/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await res.json();
+      addLog(data.message || data.error);
+    }
+
+    async function login() {
+      const username = document.getElementById('username').value;
+      const password = document.getElementById('password').value;
+      
+      const res = await fetch('http://localhost:3000/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await res.json();
+      
+      if (data.token) {
+        token = data.token;
+        currentUser = username;
+        addLog(data.message);
+        enterGame();
+      } else {
+        addLog(data.error);
+      }
+    }
+
+    function enterGame() {
+      document.getElementById('authSection').style.display = 'none';
+      document.getElementById('gameSection').style.display = 'block';
+      document.getElementById('welcomeMsg').textContent = `Benvenuto, ${currentUser}! 🛸`;
+      
+      socket.emit('join', { username: currentUser });
+    }
+
+    function sendChat() {
+      const msg = document.getElementById('chatInput').value;
+      if (msg) {
+        socket.emit('chat', { message: msg });
+        document.getElementById('chatInput').value = '';
+      }
+    }
+
+    // Socket events
+    socket.on('currentPlayers', (players) => {
+      updatePlayers(players);
+      addLog(`Connesso! ${players.length} giocatori online`);
+    });
+
+    socket.on('playerJoined', (player) => {
+      addLog(`${player.username} è entrato nel multiverso! 🛸`);
+    });
+
+    socket.on('playerLeft', (id) => {
+      addLog(`Un giocatore ha lasciato il multiverso`);
+    });
+
+    socket.on('chatMessage', (data) => {
+      const chat = document.getElementById('chat');
+      chat.innerHTML += `<div><b>${data.username}</b> [${data.time}]: ${data.message}</div>`;
+      chat.scrollTop = chat.scrollHeight;
+    });
+
+    function updatePlayers(players) {
+      const count = document.getElementById('onlineCount');
+      const list = document.getElementById('players');
+      count.textContent = players.length;
+      if (players.length === 0) {
+        list.textContent = 'Nessun giocatore online';
+      } else {
+        list.innerHTML = players.map(p => `🧑 ${p.username}`).join('<br>');
+      }
+    }
+  </script>
+</body>
+</html>
