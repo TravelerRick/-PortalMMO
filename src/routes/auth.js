@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const db = require('../database');
+const { db } = require('../database');
 const { giveStarterItems } = require('../inventory');
 
 // Registrazione
@@ -14,27 +14,38 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'Username e password obbligatori!' });
     }
 
+    const existing = await db.query(
+      `SELECT id FROM users WHERE username = ?`,
+      [username]
+    );
+    if (existing.length > 0) {
+      return res.status(400).json({ error: 'Username già esistente!' });
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const insertUser = db.prepare(
-      'INSERT INTO users (username, password) VALUES (?, ?)'
+    await db.query(
+      `INSERT INTO users (username, password) VALUES (?, ?)`,
+      [username, hashedPassword]
     );
-    const result = insertUser.run(username, hashedPassword);
 
-    const insertPlayer = db.prepare(
-      'INSERT INTO players (user_id) VALUES (?)'
+    const user = await db.query(
+      `SELECT id FROM users WHERE username = ?`,
+      [username]
     );
-    insertPlayer.run(result.lastInsertRowid);
+    const userId = user[0].id;
 
-    // Dai oggetti iniziali
-    giveStarterItems(result.lastInsertRowid);
+    await db.query(
+      `INSERT INTO players (user_id) VALUES (?)`,
+      [userId]
+    );
+
+    await giveStarterItems(userId);
 
     res.json({ message: `Benvenuto nel multiverso, ${username}! 🛸` });
 
   } catch (error) {
-    if (error.message.includes('UNIQUE')) {
-      return res.status(400).json({ error: 'Username già esistente!' });
-    }
+    console.error(error);
     res.status(500).json({ error: 'Errore del server' });
   }
 });
@@ -44,14 +55,16 @@ router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
 
-    const user = db.prepare(
-      'SELECT * FROM users WHERE username = ?'
-    ).get(username);
+    const users = await db.query(
+      `SELECT * FROM users WHERE username = ?`,
+      [username]
+    );
 
-    if (!user) {
+    if (users.length === 0) {
       return res.status(400).json({ error: 'Utente non trovato!' });
     }
 
+    const user = users[0];
     const validPassword = await bcrypt.compare(password, user.password);
     if (!validPassword) {
       return res.status(400).json({ error: 'Password errata!' });
@@ -70,6 +83,7 @@ router.post('/login', async (req, res) => {
     });
 
   } catch (error) {
+    console.error(error);
     res.status(500).json({ error: 'Errore del server' });
   }
 });

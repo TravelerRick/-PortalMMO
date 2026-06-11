@@ -1,18 +1,5 @@
 // Sistema Inventario - PortalMMO
-
-const db = require('./database');
-
-// Crea tabella inventario nel database
-db.exec(`
-  CREATE TABLE IF NOT EXISTS inventory (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    item_name TEXT NOT NULL,
-    item_type TEXT NOT NULL,
-    quantity INTEGER DEFAULT 1,
-    FOREIGN KEY (user_id) REFERENCES users(id)
-  )
-`);
+const { db } = require('./database');
 
 // Oggetti base del gioco
 const baseItems = [
@@ -22,80 +9,86 @@ const baseItems = [
   { name: 'Antidoto', type: 'cure', description: 'Rimuove stati alterati' },
 ];
 
-// Aggiungi oggetto all'inventario
-function addItem(userId, itemName, quantity = 1) {
-  const existing = db.prepare(`
-    SELECT * FROM inventory WHERE user_id = ? AND item_name = ?
-  `).get(userId, itemName);
+// Aggiungi oggetto
+async function addItem(userId, itemName, quantity = 1) {
+  const existing = await db.query(
+    `SELECT * FROM inventory WHERE user_id = ? AND item_name = ?`,
+    [userId, itemName]
+  );
 
-  if (existing) {
-    db.prepare(`
-      UPDATE inventory SET quantity = quantity + ? WHERE user_id = ? AND item_name = ?
-    `).run(quantity, userId, itemName);
+  if (existing.length > 0) {
+    await db.query(
+      `UPDATE inventory SET quantity = quantity + ? WHERE user_id = ? AND item_name = ?`,
+      [quantity, userId, itemName]
+    );
   } else {
-    db.prepare(`
-      INSERT INTO inventory (user_id, item_name, item_type, quantity) VALUES (?, ?, ?, ?)
-    `).run(userId, itemName, baseItems.find(i => i.name === itemName)?.type || 'misc', quantity);
+    const itemType = baseItems.find(i => i.name === itemName)?.type || 'misc';
+    await db.query(
+      `INSERT INTO inventory (user_id, item_name, item_type, quantity) VALUES (?, ?, ?, ?)`,
+      [userId, itemName, itemType, quantity]
+    );
   }
 }
 
-// Rimuovi oggetto dall'inventario
-function removeItem(userId, itemName, quantity = 1) {
-  const existing = db.prepare(`
-    SELECT * FROM inventory WHERE user_id = ? AND item_name = ?
-  `).get(userId, itemName);
+// Rimuovi oggetto
+async function removeItem(userId, itemName, quantity = 1) {
+  const existing = await db.query(
+    `SELECT * FROM inventory WHERE user_id = ? AND item_name = ?`,
+    [userId, itemName]
+  );
 
-  if (!existing) return { error: 'Oggetto non trovato!' };
-  if (existing.quantity < quantity) return { error: 'Non hai abbastanza oggetti!' };
+  if (existing.length === 0) return { error: 'Oggetto non trovato!' };
+  if (existing[0].quantity < quantity) return { error: 'Non hai abbastanza oggetti!' };
 
-  if (existing.quantity === quantity) {
-    db.prepare(`
-      DELETE FROM inventory WHERE user_id = ? AND item_name = ?
-    `).run(userId, itemName);
+  if (existing[0].quantity === quantity) {
+    await db.query(
+      `DELETE FROM inventory WHERE user_id = ? AND item_name = ?`,
+      [userId, itemName]
+    );
   } else {
-    db.prepare(`
-      UPDATE inventory SET quantity = quantity - ? WHERE user_id = ? AND item_name = ?
-    `).run(quantity, userId, itemName);
+    await db.query(
+      `UPDATE inventory SET quantity = quantity - ? WHERE user_id = ? AND item_name = ?`,
+      [quantity, userId, itemName]
+    );
   }
 
   return { success: true };
 }
 
-// Ottieni inventario giocatore
-function getInventory(userId) {
-  return db.prepare(`
-    SELECT * FROM inventory WHERE user_id = ?
-  `).all(userId);
+// Ottieni inventario
+async function getInventory(userId) {
+  return await db.query(
+    `SELECT * FROM inventory WHERE user_id = ?`,
+    [userId]
+  );
 }
 
-// Dai oggetti iniziali al nuovo giocatore
-function giveStarterItems(userId) {
-  addItem(userId, 'Trappola Base', 5);
-  addItem(userId, 'Pozione', 3);
+// Dai oggetti iniziali
+async function giveStarterItems(userId) {
+  await addItem(userId, 'Trappola Base', 5);
+  await addItem(userId, 'Pozione', 3);
 }
 
 function setupInventory(io) {
   io.on('connection', (socket) => {
-
-    // Ottieni inventario
-    socket.on('getInventory', (data) => {
-      const inventory = getInventory(data.userId);
+    socket.on('getInventory', async (data) => {
+      const inventory = await getInventory(data.userId);
       socket.emit('inventoryData', inventory);
     });
 
-    // Usa oggetto
-    socket.on('useItem', (data) => {
+    socket.on('useItem', async (data) => {
       const { userId, itemName } = data;
-      const result = removeItem(userId, itemName, 1);
+      const result = await removeItem(userId, itemName, 1);
       
       if (result.error) {
         socket.emit('itemError', result);
         return;
       }
 
+      const inventory = await getInventory(userId);
       socket.emit('itemUsed', { 
         message: `Hai usato ${itemName}!`,
-        inventory: getInventory(userId)
+        inventory
       });
     });
   });

@@ -1,107 +1,92 @@
 // Sistema Trading - PortalMMO
-
-const db = require('./database');
-
-// Crea tabella offerte di trading
-db.exec(`
-  CREATE TABLE IF NOT EXISTS trades (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    sender_id INTEGER NOT NULL,
-    receiver_id INTEGER NOT NULL,
-    sender_nephew_id INTEGER NOT NULL,
-    receiver_nephew_id INTEGER,
-    status TEXT DEFAULT 'pending',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (sender_id) REFERENCES users(id),
-    FOREIGN KEY (receiver_id) REFERENCES users(id)
-  )
-`);
+const { db } = require('./database');
 
 // Invia offerta di scambio
-function sendTradeOffer(senderId, receiverId, senderNephewId, receiverNephewId) {
-  // Controlla che il Nipote appartenga al mittente
-  const nephew = db.prepare(
-    'SELECT * FROM player_nephews WHERE id = ? AND user_id = ?'
-  ).get(senderNephewId, senderId);
+async function sendTradeOffer(senderId, receiverId, senderNephewId, receiverNephewId) {
+  const nephew = await db.query(
+    `SELECT * FROM player_nephews WHERE id = ? AND user_id = ?`,
+    [senderNephewId, senderId]
+  );
 
-  if (!nephew) return { error: 'Nipote non trovato o non ti appartiene!' };
+  if (nephew.length === 0) return { error: 'Nipote non trovato o non ti appartiene!' };
 
-  // Crea offerta
-  const insert = db.prepare(`
-    INSERT INTO trades (sender_id, receiver_id, sender_nephew_id, receiver_nephew_id)
-    VALUES (?, ?, ?, ?)
-  `);
-  const result = insert.run(senderId, receiverId, senderNephewId, receiverNephewId || null);
+  await db.query(
+    `INSERT INTO trades (sender_id, receiver_id, sender_nephew_id, receiver_nephew_id) VALUES (?, ?, ?, ?)`,
+    [senderId, receiverId, senderNephewId, receiverNephewId || null]
+  );
+
+  const trade = await db.query(
+    `SELECT id FROM trades WHERE sender_id = ? ORDER BY id DESC LIMIT 1`,
+    [senderId]
+  );
 
   return { 
     success: true, 
-    tradeId: result.lastInsertRowid,
+    tradeId: trade[0].id,
     message: 'Offerta di scambio inviata! 🤝'
   };
 }
 
-// Accetta offerta di scambio
-function acceptTrade(tradeId, receiverId) {
-  const trade = db.prepare(
-    'SELECT * FROM trades WHERE id = ? AND receiver_id = ? AND status = ?'
-  ).get(tradeId, receiverId, 'pending');
+// Accetta offerta
+async function acceptTrade(tradeId, receiverId) {
+  const trades = await db.query(
+    `SELECT * FROM trades WHERE id = ? AND receiver_id = ? AND status = ?`,
+    [tradeId, receiverId, 'pending']
+  );
 
-  if (!trade) return { error: 'Offerta non trovata!' };
+  if (trades.length === 0) return { error: 'Offerta non trovata!' };
+  const trade = trades[0];
 
-  // Scambia i Nipoti
-  db.prepare(
-    'UPDATE player_nephews SET user_id = ? WHERE id = ?'
-  ).run(receiverId, trade.sender_nephew_id);
+  await db.query(
+    `UPDATE player_nephews SET user_id = ? WHERE id = ?`,
+    [receiverId, trade.sender_nephew_id]
+  );
 
   if (trade.receiver_nephew_id) {
-    db.prepare(
-      'UPDATE player_nephews SET user_id = ? WHERE id = ?'
-    ).run(trade.sender_id, trade.receiver_nephew_id);
+    await db.query(
+      `UPDATE player_nephews SET user_id = ? WHERE id = ?`,
+      [trade.sender_id, trade.receiver_nephew_id]
+    );
   }
 
-  // Aggiorna stato offerta
-  db.prepare(
-    'UPDATE trades SET status = ? WHERE id = ?'
-  ).run('accepted', tradeId);
+  await db.query(
+    `UPDATE trades SET status = ? WHERE id = ?`,
+    ['accepted', tradeId]
+  );
 
-  return { 
-    success: true, 
-    message: 'Scambio completato! 🎉'
-  };
+  return { success: true, message: 'Scambio completato! 🎉' };
 }
 
 // Rifiuta offerta
-function rejectTrade(tradeId, receiverId) {
-  const trade = db.prepare(
-    'SELECT * FROM trades WHERE id = ? AND receiver_id = ? AND status = ?'
-  ).get(tradeId, receiverId, 'pending');
+async function rejectTrade(tradeId, receiverId) {
+  const trades = await db.query(
+    `SELECT * FROM trades WHERE id = ? AND receiver_id = ? AND status = ?`,
+    [tradeId, receiverId, 'pending']
+  );
 
-  if (!trade) return { error: 'Offerta non trovata!' };
+  if (trades.length === 0) return { error: 'Offerta non trovata!' };
 
-  db.prepare(
-    'UPDATE trades SET status = ? WHERE id = ?'
-  ).run('rejected', tradeId);
+  await db.query(
+    `UPDATE trades SET status = ? WHERE id = ?`,
+    ['rejected', tradeId]
+  );
 
-  return { 
-    success: true, 
-    message: 'Offerta rifiutata!'
-  };
+  return { success: true, message: 'Offerta rifiutata!' };
 }
 
 // Ottieni offerte pendenti
-function getPendingTrades(userId) {
-  return db.prepare(
-    'SELECT * FROM trades WHERE receiver_id = ? AND status = ?'
-  ).all(userId, 'pending');
+async function getPendingTrades(userId) {
+  return await db.query(
+    `SELECT * FROM trades WHERE receiver_id = ? AND status = ?`,
+    [userId, 'pending']
+  );
 }
 
 function setupTrading(io) {
   io.on('connection', (socket) => {
-
-    // Invia offerta
-    socket.on('sendTrade', (data) => {
+    socket.on('sendTrade', async (data) => {
       const { senderId, receiverId, senderNephewId, receiverNephewId } = data;
-      const result = sendTradeOffer(senderId, receiverId, senderNephewId, receiverNephewId);
+      const result = await sendTradeOffer(senderId, receiverId, senderNephewId, receiverNephewId);
       
       if (result.error) {
         socket.emit('tradeError', result);
@@ -109,8 +94,6 @@ function setupTrading(io) {
       }
 
       socket.emit('tradeSent', result);
-      
-      // Avvisa il destinatario
       io.to(data.receiverSocketId).emit('tradeReceived', {
         tradeId: result.tradeId,
         from: data.senderUsername,
@@ -118,9 +101,8 @@ function setupTrading(io) {
       });
     });
 
-    // Accetta offerta
-    socket.on('acceptTrade', (data) => {
-      const result = acceptTrade(data.tradeId, data.userId);
+    socket.on('acceptTrade', async (data) => {
+      const result = await acceptTrade(data.tradeId, data.userId);
       socket.emit('tradeResult', result);
       
       if (result.success) {
@@ -131,9 +113,8 @@ function setupTrading(io) {
       }
     });
 
-    // Rifiuta offerta
-    socket.on('rejectTrade', (data) => {
-      const result = rejectTrade(data.tradeId, data.userId);
+    socket.on('rejectTrade', async (data) => {
+      const result = await rejectTrade(data.tradeId, data.userId);
       socket.emit('tradeResult', result);
 
       if (result.success) {
@@ -144,9 +125,8 @@ function setupTrading(io) {
       }
     });
 
-    // Ottieni offerte pendenti
-    socket.on('getPendingTrades', (data) => {
-      const trades = getPendingTrades(data.userId);
+    socket.on('getPendingTrades', async (data) => {
+      const trades = await getPendingTrades(data.userId);
       socket.emit('pendingTrades', trades);
     });
   });

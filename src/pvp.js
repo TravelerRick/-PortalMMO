@@ -1,13 +1,10 @@
 // Sistema PvP - PortalMMO
-
-const { activeBattles } = require('./battle');
-const { addExperience, addPlayerExperience } = require('./progression');
+const { addPlayerExperience } = require('./progression');
 const { addItem } = require('./inventory');
 
-const pvpQueue = new Map(); // Coda di attesa PvP
-const pvpBattles = new Map(); // Battaglie PvP attive
+const pvpQueue = new Map();
+const pvpBattles = new Map();
 
-// Crea battaglia PvP
 function createPvpBattle(player1, player2) {
   const battleId = `pvp_${Date.now()}`;
   
@@ -24,8 +21,7 @@ function createPvpBattle(player1, player2) {
   return battle;
 }
 
-// Esegui mossa PvP
-function executePvpMove(battleId, socketId, move) {
+async function executePvpMove(battleId, socketId, move) {
   const battle = pvpBattles.get(battleId);
 
   if (!battle) return { error: 'Battaglia non trovata!' };
@@ -36,7 +32,6 @@ function executePvpMove(battleId, socketId, move) {
   const attacker = isP1 ? battle.p1 : battle.p2;
   const defender = isP1 ? battle.p2 : battle.p1;
 
-  // Calcola danno
   const base = (attacker.nephew.atk / defender.nephew.def) * move.power;
   const random = 0.85 + Math.random() * 0.15;
   const damage = Math.max(1, Math.floor(base * random));
@@ -46,18 +41,14 @@ function executePvpMove(battleId, socketId, move) {
   const logEntry = `${attacker.username} usa ${move.name} e fa ${damage} danni!`;
   battle.log.push(logEntry);
 
-  // Controlla fine battaglia
   if (defender.currentHp <= 0) {
     battle.status = 'finished';
     battle.winner = socketId;
     battle.loser = defender.socketId;
 
-    // Premi al vincitore
-    addPlayerExperience(attacker.userId, 50);
-    addItem(attacker.userId, 'Pozione', 1);
-
-    // Exp consolazione al perdente
-    addPlayerExperience(defender.userId, 10);
+    await addPlayerExperience(attacker.userId, 50);
+    await addItem(attacker.userId, 'Pozione', 1);
+    await addPlayerExperience(defender.userId, 10);
 
     battle.log.push(`${attacker.username} ha vinto il PvP! 🏆 +50 EXP`);
 
@@ -72,7 +63,6 @@ function executePvpMove(battleId, socketId, move) {
     };
   }
 
-  // Cambia turno
   battle.turn = defender.socketId;
 
   return {
@@ -87,8 +77,6 @@ function executePvpMove(battleId, socketId, move) {
 
 function setupPvp(io) {
   io.on('connection', (socket) => {
-
-    // Entra in coda PvP
     socket.on('joinPvpQueue', (data) => {
       pvpQueue.set(socket.id, {
         socketId: socket.id,
@@ -102,35 +90,29 @@ function setupPvp(io) {
         queueSize: pvpQueue.size
       });
 
-      // Cerca avversario
       if (pvpQueue.size >= 2) {
         const players = Array.from(pvpQueue.values());
         const p1 = players[0];
         const p2 = players[1];
 
-        // Rimuovi dalla coda
         pvpQueue.delete(p1.socketId);
         pvpQueue.delete(p2.socketId);
 
-        // Crea battaglia
         const battle = createPvpBattle(p1, p2);
 
-        // Avvisa entrambi
         io.to(p1.socketId).emit('pvpStart', { battle, opponent: p2.username });
         io.to(p2.socketId).emit('pvpStart', { battle, opponent: p1.username });
       }
     });
 
-    // Esci dalla coda
     socket.on('leavePvpQueue', () => {
       pvpQueue.delete(socket.id);
       socket.emit('pvpQueueLeft', { message: 'Sei uscito dalla coda PvP!' });
     });
 
-    // Mossa PvP
-    socket.on('pvpMove', (data) => {
+    socket.on('pvpMove', async (data) => {
       const { battleId, move } = data;
-      const result = executePvpMove(battleId, socket.id, move);
+      const result = await executePvpMove(battleId, socket.id, move);
 
       if (result.error) {
         socket.emit('pvpError', result);
@@ -144,7 +126,6 @@ function setupPvp(io) {
       }
     });
 
-    // Disconnessione durante PvP
     socket.on('disconnect', () => {
       pvpQueue.delete(socket.id);
     });

@@ -10,9 +10,6 @@ const io = socketio(server, {
   cors: { origin: "*" }
 });
 
-// Database
-require('./database');
-
 app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
@@ -42,16 +39,16 @@ app.get('/nephews', (req, res) => {
 });
 
 // Route inventario
-app.get('/inventory/:userId', (req, res) => {
+app.get('/inventory/:userId', async (req, res) => {
   const { getInventory } = require('./inventory');
-  const inventory = getInventory(req.params.userId);
+  const inventory = await getInventory(req.params.userId);
   res.json(inventory);
 });
 
 // Route profilo giocatore
-app.get('/profile/:userId', (req, res) => {
+app.get('/profile/:userId', async (req, res) => {
   const { getPlayerProfile } = require('./progression');
-  const profile = getPlayerProfile(req.params.userId);
+  const profile = await getPlayerProfile(req.params.userId);
   if (!profile) return res.status(404).json({ error: 'Giocatore non trovato!' });
   res.json(profile);
 });
@@ -66,9 +63,9 @@ app.get('/pvp/queue', (req, res) => {
 });
 
 // Route trades pendenti
-app.get('/trades/:userId', (req, res) => {
+app.get('/trades/:userId', async (req, res) => {
   const { getPendingTrades } = require('./trading');
-  const trades = getPendingTrades(req.params.userId);
+  const trades = await getPendingTrades(req.params.userId);
   res.json(trades);
 });
 
@@ -101,7 +98,11 @@ const { setupTrading } = require('./trading');
 setupTrading(io);
 
 // Avvia server
+const { initDatabase } = require('./database');
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`PortalMMO Server avviato sulla porta ${PORT} 🚀`);
+
+initDatabase().then(() => {
+  server.listen(PORT, () => {
+    console.log(`PortalMMO Server avviato sulla porta ${PORT} 🚀`);
+  });
 });

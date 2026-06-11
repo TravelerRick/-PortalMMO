@@ -1,13 +1,10 @@
 // Sistema Progressione - PortalMMO
+const { db } = require('./database');
 
-const db = require('./database');
-
-// Esperienza necessaria per ogni livello
 function expForLevel(level) {
   return Math.floor(100 * Math.pow(level, 1.5));
 }
 
-// Calcola statistiche in base al livello
 function calculateStats(baseStats, level) {
   const multiplier = 1 + (level - 1) * 0.1;
   return {
@@ -18,41 +15,33 @@ function calculateStats(baseStats, level) {
   };
 }
 
-// Aggiungi esperienza a un Nipote
-function addExperience(nephewDbId, amount) {
-  const nephew = db.prepare(
-    'SELECT * FROM player_nephews WHERE id = ?'
-  ).get(nephewDbId);
+async function addExperience(nephewDbId, amount) {
+  const rows = await db.query(
+    `SELECT * FROM player_nephews WHERE id = ?`,
+    [nephewDbId]
+  );
+  if (rows.length === 0) return { error: 'Nipote non trovato!' };
 
-  if (!nephew) return { error: 'Nipote non trovato!' };
-
+  const nephew = rows[0];
   let newExp = nephew.experience + amount;
   let newLevel = nephew.level;
   let leveledUp = false;
-  let message = `+${amount} EXP!`;
 
-  // Controlla se sale di livello
   while (newExp >= expForLevel(newLevel)) {
     newExp -= expForLevel(newLevel);
     newLevel++;
     leveledUp = true;
   }
 
-  // Aggiorna nel database
   const newStats = calculateStats(
     { hp: nephew.hp, atk: nephew.atk, def: nephew.def, spd: nephew.spd },
     newLevel
   );
 
-  db.prepare(`
-    UPDATE player_nephews 
-    SET experience = ?, level = ?, hp = ?, atk = ?, def = ?, spd = ?
-    WHERE id = ?
-  `).run(newExp, newLevel, newStats.hp, newStats.atk, newStats.def, newStats.spd, nephewDbId);
-
-  if (leveledUp) {
-    message += ` Livello ${newLevel}! 🎉`;
-  }
+  await db.query(
+    `UPDATE player_nephews SET experience = ?, level = ?, hp = ?, atk = ?, def = ?, spd = ? WHERE id = ?`,
+    [newExp, newLevel, newStats.hp, newStats.atk, newStats.def, newStats.spd, nephewDbId]
+  );
 
   return {
     success: true,
@@ -60,18 +49,18 @@ function addExperience(nephewDbId, amount) {
     newLevel,
     newExp,
     expNeeded: expForLevel(newLevel),
-    message
+    message: `+${amount} EXP!${leveledUp ? ` Livello ${newLevel}! 🎉` : ''}`
   };
 }
 
-// Aggiungi esperienza al giocatore
-function addPlayerExperience(userId, amount) {
-  const player = db.prepare(
-    'SELECT * FROM players WHERE user_id = ?'
-  ).get(userId);
+async function addPlayerExperience(userId, amount) {
+  const rows = await db.query(
+    `SELECT * FROM players WHERE user_id = ?`,
+    [userId]
+  );
+  if (rows.length === 0) return { error: 'Giocatore non trovato!' };
 
-  if (!player) return { error: 'Giocatore non trovato!' };
-
+  const player = rows[0];
   let newExp = player.experience + amount;
   let newLevel = player.level;
   let leveledUp = false;
@@ -82,51 +71,41 @@ function addPlayerExperience(userId, amount) {
     leveledUp = true;
   }
 
-  db.prepare(`
-    UPDATE players SET experience = ?, level = ? WHERE user_id = ?
-  `).run(newExp, newLevel, userId);
+  await db.query(
+    `UPDATE players SET experience = ?, level = ? WHERE user_id = ?`,
+    [newExp, newLevel, userId]
+  );
 
-  return {
-    success: true,
-    leveledUp,
-    newLevel,
-    newExp,
-    expNeeded: expForLevel(newLevel)
-  };
+  return { success: true, leveledUp, newLevel, newExp, expNeeded: expForLevel(newLevel) };
 }
 
-// Ottieni profilo giocatore
-function getPlayerProfile(userId) {
-  const player = db.prepare(
-    'SELECT * FROM players WHERE user_id = ?'
-  ).get(userId);
-
-  if (!player) return null;
+async function getPlayerProfile(userId) {
+  const rows = await db.query(
+    `SELECT * FROM players WHERE user_id = ?`,
+    [userId]
+  );
+  if (rows.length === 0) return null;
 
   return {
-    ...player,
-    expNeeded: expForLevel(player.level)
+    ...rows[0],
+    expNeeded: expForLevel(rows[0].level)
   };
 }
 
 function setupProgression(io) {
   io.on('connection', (socket) => {
-
-    // Ottieni profilo
-    socket.on('getProfile', (data) => {
-      const profile = getPlayerProfile(data.userId);
+    socket.on('getProfile', async (data) => {
+      const profile = await getPlayerProfile(data.userId);
       socket.emit('profileData', profile);
     });
 
-    // Aggiungi exp al Nipote
-    socket.on('addNephewExp', (data) => {
-      const result = addExperience(data.nephewDbId, data.amount);
+    socket.on('addNephewExp', async (data) => {
+      const result = await addExperience(data.nephewDbId, data.amount);
       socket.emit('nephewExpResult', result);
     });
 
-    // Aggiungi exp al giocatore
-    socket.on('addPlayerExp', (data) => {
-      const result = addPlayerExperience(data.userId, data.amount);
+    socket.on('addPlayerExp', async (data) => {
+      const result = await addPlayerExperience(data.userId, data.amount);
       socket.emit('playerExpResult', result);
     });
   });
