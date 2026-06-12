@@ -1,70 +1,76 @@
-const createDatabase = require('@databases/sqlite');
+const knex = require('knex');
 const path = require('path');
 
-const db = createDatabase(path.join(__dirname, '../portalmmo.db'));
+const db = knex({
+  client: 'better-sqlite3',
+  connection: {
+    filename: path.join(__dirname, '../portalmmo.db')
+  },
+  useNullAsDefault: true
+});
 
 async function initDatabase() {
-  await db.query(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE NOT NULL,
-      password TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
+  // Tabella utenti
+  if (!await db.schema.hasTable('users')) {
+    await db.schema.createTable('users', (table) => {
+      table.increments('id').primary();
+      table.string('username').unique().notNullable();
+      table.string('password').notNullable();
+      table.timestamp('created_at').defaultTo(db.fn.now());
+    });
+  }
 
-  await db.query(`
-    CREATE TABLE IF NOT EXISTS players (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER UNIQUE NOT NULL,
-      level INTEGER DEFAULT 1,
-      experience INTEGER DEFAULT 0,
-      portal_fragments INTEGER DEFAULT 100,
-      FOREIGN KEY (user_id) REFERENCES users(id)
-    )
-  `);
+  // Tabella giocatori
+  if (!await db.schema.hasTable('players')) {
+    await db.schema.createTable('players', (table) => {
+      table.increments('id').primary();
+      table.integer('user_id').unique().notNullable();
+      table.integer('level').defaultTo(1);
+      table.integer('experience').defaultTo(0);
+      table.integer('portal_fragments').defaultTo(100);
+    });
+  }
 
-  await db.query(`
-    CREATE TABLE IF NOT EXISTS player_nephews (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      nephew_id INTEGER NOT NULL,
-      nickname TEXT,
-      level INTEGER DEFAULT 1,
-      experience INTEGER DEFAULT 0,
-      hp INTEGER NOT NULL,
-      atk INTEGER NOT NULL,
-      def INTEGER NOT NULL,
-      spd INTEGER NOT NULL,
-      caught_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id)
-    )
-  `);
+  // Tabella nipoti
+  if (!await db.schema.hasTable('player_nephews')) {
+    await db.schema.createTable('player_nephews', (table) => {
+      table.increments('id').primary();
+      table.integer('user_id').notNullable();
+      table.integer('nephew_id').notNullable();
+      table.string('nickname');
+      table.integer('level').defaultTo(1);
+      table.integer('experience').defaultTo(0);
+      table.integer('hp').notNullable();
+      table.integer('atk').notNullable();
+      table.integer('def').notNullable();
+      table.integer('spd').notNullable();
+      table.timestamp('caught_at').defaultTo(db.fn.now());
+    });
+  }
 
-  await db.query(`
-    CREATE TABLE IF NOT EXISTS inventory (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      item_name TEXT NOT NULL,
-      item_type TEXT NOT NULL,
-      quantity INTEGER DEFAULT 1,
-      FOREIGN KEY (user_id) REFERENCES users(id)
-    )
-  `);
+  // Tabella inventario
+  if (!await db.schema.hasTable('inventory')) {
+    await db.schema.createTable('inventory', (table) => {
+      table.increments('id').primary();
+      table.integer('user_id').notNullable();
+      table.string('item_name').notNullable();
+      table.string('item_type').notNullable();
+      table.integer('quantity').defaultTo(1);
+    });
+  }
 
-  await db.query(`
-    CREATE TABLE IF NOT EXISTS trades (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      sender_id INTEGER NOT NULL,
-      receiver_id INTEGER NOT NULL,
-      sender_nephew_id INTEGER NOT NULL,
-      receiver_nephew_id INTEGER,
-      status TEXT DEFAULT 'pending',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (sender_id) REFERENCES users(id),
-      FOREIGN KEY (receiver_id) REFERENCES users(id)
-    )
-  `);
+  // Tabella trades
+  if (!await db.schema.hasTable('trades')) {
+    await db.schema.createTable('trades', (table) => {
+      table.increments('id').primary();
+      table.integer('sender_id').notNullable();
+      table.integer('receiver_id').notNullable();
+      table.integer('sender_nephew_id').notNullable();
+      table.integer('receiver_nephew_id');
+      table.string('status').defaultTo('pending');
+      table.timestamp('created_at').defaultTo(db.fn.now());
+    });
+  }
 
   console.log('Database PortalMMO pronto! 🛸');
 }

@@ -14,31 +14,16 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'Username e password obbligatori!' });
     }
 
-    const existing = await db.query(
-      `SELECT id FROM users WHERE username = ?`,
-      [username]
-    );
-    if (existing.length > 0) {
+    const existing = await db('users').where({ username }).first();
+    if (existing) {
       return res.status(400).json({ error: 'Username già esistente!' });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    await db.query(
-      `INSERT INTO users (username, password) VALUES (?, ?)`,
-      [username, hashedPassword]
-    );
+    const [userId] = await db('users').insert({ username, password: hashedPassword });
 
-    const user = await db.query(
-      `SELECT id FROM users WHERE username = ?`,
-      [username]
-    );
-    const userId = user[0].id;
-
-    await db.query(
-      `INSERT INTO players (user_id) VALUES (?)`,
-      [userId]
-    );
+    await db('players').insert({ user_id: userId });
 
     await giveStarterItems(userId);
 
@@ -55,16 +40,12 @@ router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
 
-    const users = await db.query(
-      `SELECT * FROM users WHERE username = ?`,
-      [username]
-    );
+    const user = await db('users').where({ username }).first();
 
-    if (users.length === 0) {
+    if (!user) {
       return res.status(400).json({ error: 'Utente non trovato!' });
     }
 
-    const user = users[0];
     const validPassword = await bcrypt.compare(password, user.password);
     if (!validPassword) {
       return res.status(400).json({ error: 'Password errata!' });

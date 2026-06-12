@@ -2,7 +2,6 @@
 const { db } = require('./database');
 const { baseNephews } = require('./battle');
 
-// Genera un Nipote selvatico casuale
 function generateWildNephew() {
   const random = Math.floor(Math.random() * baseNephews.length);
   const base = baseNephews[random];
@@ -17,7 +16,6 @@ function generateWildNephew() {
   };
 }
 
-// Calcola probabilità di cattura
 function calculateCatchRate(nephewHp, currentHp) {
   const hpPercent = currentHp / nephewHp;
   if (hpPercent <= 0.1) return 0.90;
@@ -26,7 +24,6 @@ function calculateCatchRate(nephewHp, currentHp) {
   return 0.20;
 }
 
-// Tenta cattura
 async function attemptCatch(userId, wildNephew) {
   const catchRate = calculateCatchRate(
     wildNephew.hp, 
@@ -35,22 +32,22 @@ async function attemptCatch(userId, wildNephew) {
   const success = Math.random() < catchRate;
 
   if (success) {
-    await db.query(
-      `INSERT INTO player_nephews (user_id, nephew_id, hp, atk, def, spd) VALUES (?, ?, ?, ?, ?, ?)`,
-      [userId, wildNephew.id, wildNephew.hp, wildNephew.atk, wildNephew.def, wildNephew.spd]
-    );
+    await db('player_nephews').insert({
+      user_id: userId,
+      nephew_id: wildNephew.id,
+      hp: wildNephew.hp,
+      atk: wildNephew.atk,
+      def: wildNephew.def,
+      spd: wildNephew.spd
+    });
     return { success: true, message: `Hai catturato ${wildNephew.name}! 🎉` };
   }
 
   return { success: false, message: `${wildNephew.name} è scappato! 😤` };
 }
 
-// Ottieni Nipoti del giocatore
 async function getPlayerNephews(userId) {
-  return await db.query(
-    `SELECT * FROM player_nephews WHERE user_id = ?`,
-    [userId]
-  );
+  return await db('player_nephews').where({ user_id: userId });
 }
 
 function setupCatch(io) {

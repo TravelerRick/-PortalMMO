@@ -1,85 +1,63 @@
 // Sistema Trading - PortalMMO
 const { db } = require('./database');
 
-// Invia offerta di scambio
 async function sendTradeOffer(senderId, receiverId, senderNephewId, receiverNephewId) {
-  const nephew = await db.query(
-    `SELECT * FROM player_nephews WHERE id = ? AND user_id = ?`,
-    [senderNephewId, senderId]
-  );
+  const nephew = await db('player_nephews')
+    .where({ id: senderNephewId, user_id: senderId })
+    .first();
 
-  if (nephew.length === 0) return { error: 'Nipote non trovato o non ti appartiene!' };
+  if (!nephew) return { error: 'Nipote non trovato o non ti appartiene!' };
 
-  await db.query(
-    `INSERT INTO trades (sender_id, receiver_id, sender_nephew_id, receiver_nephew_id) VALUES (?, ?, ?, ?)`,
-    [senderId, receiverId, senderNephewId, receiverNephewId || null]
-  );
-
-  const trade = await db.query(
-    `SELECT id FROM trades WHERE sender_id = ? ORDER BY id DESC LIMIT 1`,
-    [senderId]
-  );
+  const [tradeId] = await db('trades').insert({
+    sender_id: senderId,
+    receiver_id: receiverId,
+    sender_nephew_id: senderNephewId,
+    receiver_nephew_id: receiverNephewId || null
+  });
 
   return { 
     success: true, 
-    tradeId: trade[0].id,
+    tradeId,
     message: 'Offerta di scambio inviata! 🤝'
   };
 }
 
-// Accetta offerta
 async function acceptTrade(tradeId, receiverId) {
-  const trades = await db.query(
-    `SELECT * FROM trades WHERE id = ? AND receiver_id = ? AND status = ?`,
-    [tradeId, receiverId, 'pending']
-  );
+  const trade = await db('trades')
+    .where({ id: tradeId, receiver_id: receiverId, status: 'pending' })
+    .first();
 
-  if (trades.length === 0) return { error: 'Offerta non trovata!' };
-  const trade = trades[0];
+  if (!trade) return { error: 'Offerta non trovata!' };
 
-  await db.query(
-    `UPDATE player_nephews SET user_id = ? WHERE id = ?`,
-    [receiverId, trade.sender_nephew_id]
-  );
+  await db('player_nephews')
+    .where({ id: trade.sender_nephew_id })
+    .update({ user_id: receiverId });
 
   if (trade.receiver_nephew_id) {
-    await db.query(
-      `UPDATE player_nephews SET user_id = ? WHERE id = ?`,
-      [trade.sender_id, trade.receiver_nephew_id]
-    );
+    await db('player_nephews')
+      .where({ id: trade.receiver_nephew_id })
+      .update({ user_id: trade.sender_id });
   }
 
-  await db.query(
-    `UPDATE trades SET status = ? WHERE id = ?`,
-    ['accepted', tradeId]
-  );
+  await db('trades').where({ id: tradeId }).update({ status: 'accepted' });
 
   return { success: true, message: 'Scambio completato! 🎉' };
 }
 
-// Rifiuta offerta
 async function rejectTrade(tradeId, receiverId) {
-  const trades = await db.query(
-    `SELECT * FROM trades WHERE id = ? AND receiver_id = ? AND status = ?`,
-    [tradeId, receiverId, 'pending']
-  );
+  const trade = await db('trades')
+    .where({ id: tradeId, receiver_id: receiverId, status: 'pending' })
+    .first();
 
-  if (trades.length === 0) return { error: 'Offerta non trovata!' };
+  if (!trade) return { error: 'Offerta non trovata!' };
 
-  await db.query(
-    `UPDATE trades SET status = ? WHERE id = ?`,
-    ['rejected', tradeId]
-  );
+  await db('trades').where({ id: tradeId }).update({ status: 'rejected' });
 
   return { success: true, message: 'Offerta rifiutata!' };
 }
 
-// Ottieni offerte pendenti
 async function getPendingTrades(userId) {
-  return await db.query(
-    `SELECT * FROM trades WHERE receiver_id = ? AND status = ?`,
-    [userId, 'pending']
-  );
+  return await db('trades').where({ receiver_id: userId, status: 'pending' });
 }
 
 function setupTrading(io) {

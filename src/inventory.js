@@ -1,7 +1,6 @@
 // Sistema Inventario - PortalMMO
 const { db } = require('./database');
 
-// Oggetti base del gioco
 const baseItems = [
   { name: 'Trappola Base', type: 'catch', description: 'Cattura Nipoti indeboliti' },
   { name: 'Pozione', type: 'heal', description: 'Ripristina 20 HP', healAmount: 20 },
@@ -9,61 +8,51 @@ const baseItems = [
   { name: 'Antidoto', type: 'cure', description: 'Rimuove stati alterati' },
 ];
 
-// Aggiungi oggetto
 async function addItem(userId, itemName, quantity = 1) {
-  const existing = await db.query(
-    `SELECT * FROM inventory WHERE user_id = ? AND item_name = ?`,
-    [userId, itemName]
-  );
+  const existing = await db('inventory')
+    .where({ user_id: userId, item_name: itemName })
+    .first();
 
-  if (existing.length > 0) {
-    await db.query(
-      `UPDATE inventory SET quantity = quantity + ? WHERE user_id = ? AND item_name = ?`,
-      [quantity, userId, itemName]
-    );
+  if (existing) {
+    await db('inventory')
+      .where({ user_id: userId, item_name: itemName })
+      .increment('quantity', quantity);
   } else {
     const itemType = baseItems.find(i => i.name === itemName)?.type || 'misc';
-    await db.query(
-      `INSERT INTO inventory (user_id, item_name, item_type, quantity) VALUES (?, ?, ?, ?)`,
-      [userId, itemName, itemType, quantity]
-    );
+    await db('inventory').insert({
+      user_id: userId,
+      item_name: itemName,
+      item_type: itemType,
+      quantity
+    });
   }
 }
 
-// Rimuovi oggetto
 async function removeItem(userId, itemName, quantity = 1) {
-  const existing = await db.query(
-    `SELECT * FROM inventory WHERE user_id = ? AND item_name = ?`,
-    [userId, itemName]
-  );
+  const existing = await db('inventory')
+    .where({ user_id: userId, item_name: itemName })
+    .first();
 
-  if (existing.length === 0) return { error: 'Oggetto non trovato!' };
-  if (existing[0].quantity < quantity) return { error: 'Non hai abbastanza oggetti!' };
+  if (!existing) return { error: 'Oggetto non trovato!' };
+  if (existing.quantity < quantity) return { error: 'Non hai abbastanza oggetti!' };
 
-  if (existing[0].quantity === quantity) {
-    await db.query(
-      `DELETE FROM inventory WHERE user_id = ? AND item_name = ?`,
-      [userId, itemName]
-    );
+  if (existing.quantity === quantity) {
+    await db('inventory')
+      .where({ user_id: userId, item_name: itemName })
+      .delete();
   } else {
-    await db.query(
-      `UPDATE inventory SET quantity = quantity - ? WHERE user_id = ? AND item_name = ?`,
-      [quantity, userId, itemName]
-    );
+    await db('inventory')
+      .where({ user_id: userId, item_name: itemName })
+      .decrement('quantity', quantity);
   }
 
   return { success: true };
 }
 
-// Ottieni inventario
 async function getInventory(userId) {
-  return await db.query(
-    `SELECT * FROM inventory WHERE user_id = ?`,
-    [userId]
-  );
+  return await db('inventory').where({ user_id: userId });
 }
 
-// Dai oggetti iniziali
 async function giveStarterItems(userId) {
   await addItem(userId, 'Trappola Base', 5);
   await addItem(userId, 'Pozione', 3);

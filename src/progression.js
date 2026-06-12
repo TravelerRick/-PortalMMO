@@ -16,13 +16,9 @@ function calculateStats(baseStats, level) {
 }
 
 async function addExperience(nephewDbId, amount) {
-  const rows = await db.query(
-    `SELECT * FROM player_nephews WHERE id = ?`,
-    [nephewDbId]
-  );
-  if (rows.length === 0) return { error: 'Nipote non trovato!' };
+  const nephew = await db('player_nephews').where({ id: nephewDbId }).first();
+  if (!nephew) return { error: 'Nipote non trovato!' };
 
-  const nephew = rows[0];
   let newExp = nephew.experience + amount;
   let newLevel = nephew.level;
   let leveledUp = false;
@@ -38,10 +34,14 @@ async function addExperience(nephewDbId, amount) {
     newLevel
   );
 
-  await db.query(
-    `UPDATE player_nephews SET experience = ?, level = ?, hp = ?, atk = ?, def = ?, spd = ? WHERE id = ?`,
-    [newExp, newLevel, newStats.hp, newStats.atk, newStats.def, newStats.spd, nephewDbId]
-  );
+  await db('player_nephews').where({ id: nephewDbId }).update({
+    experience: newExp,
+    level: newLevel,
+    hp: newStats.hp,
+    atk: newStats.atk,
+    def: newStats.def,
+    spd: newStats.spd
+  });
 
   return {
     success: true,
@@ -54,13 +54,9 @@ async function addExperience(nephewDbId, amount) {
 }
 
 async function addPlayerExperience(userId, amount) {
-  const rows = await db.query(
-    `SELECT * FROM players WHERE user_id = ?`,
-    [userId]
-  );
-  if (rows.length === 0) return { error: 'Giocatore non trovato!' };
+  const player = await db('players').where({ user_id: userId }).first();
+  if (!player) return { error: 'Giocatore non trovato!' };
 
-  const player = rows[0];
   let newExp = player.experience + amount;
   let newLevel = player.level;
   let leveledUp = false;
@@ -71,24 +67,21 @@ async function addPlayerExperience(userId, amount) {
     leveledUp = true;
   }
 
-  await db.query(
-    `UPDATE players SET experience = ?, level = ? WHERE user_id = ?`,
-    [newExp, newLevel, userId]
-  );
+  await db('players').where({ user_id: userId }).update({
+    experience: newExp,
+    level: newLevel
+  });
 
   return { success: true, leveledUp, newLevel, newExp, expNeeded: expForLevel(newLevel) };
 }
 
 async function getPlayerProfile(userId) {
-  const rows = await db.query(
-    `SELECT * FROM players WHERE user_id = ?`,
-    [userId]
-  );
-  if (rows.length === 0) return null;
+  const player = await db('players').where({ user_id: userId }).first();
+  if (!player) return null;
 
   return {
-    ...rows[0],
-    expNeeded: expForLevel(rows[0].level)
+    ...player,
+    expNeeded: expForLevel(player.level)
   };
 }
 
