@@ -61,7 +61,6 @@
 <body>
   <h1>🛸 PortalMMO</h1>
 
-  <!-- Login/Register -->
   <div id="authSection">
     <h2>Accedi al Multiverso</h2>
     <input type="text" id="username" placeholder="Username" />
@@ -71,24 +70,22 @@
     <button onclick="login()">Accedi</button>
   </div>
 
-  <!-- Gioco -->
   <div id="gameSection" style="display:none">
     <h2 id="welcomeMsg"></h2>
     <p>Giocatori online: <span id="onlineCount">0</span></p>
     <div id="players">Nessun giocatore online</div>
 
-    <!-- Chat -->
     <h3>Chat Globale 💬</h3>
     <div id="chat"></div>
     <input type="text" id="chatInput" placeholder="Scrivi un messaggio..." />
     <button onclick="sendChat()">Invia</button>
   </div>
 
-  <!-- Log -->
   <div id="log"></div>
 
   <script>
-    const socket = io('http://localhost:3000');
+    const SERVER = 'https://portalmmo-production.up.railway.app';
+    const socket = io(SERVER);
     let currentUser = null;
     let token = null;
 
@@ -102,7 +99,7 @@
       const username = document.getElementById('username').value;
       const password = document.getElementById('password').value;
       
-      const res = await fetch('http://localhost:3000/auth/register', {
+      const res = await fetch(`${SERVER}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })
@@ -115,7 +112,7 @@
       const username = document.getElementById('username').value;
       const password = document.getElementById('password').value;
       
-      const res = await fetch('http://localhost:3000/auth/login', {
+      const res = await fetch(`${SERVER}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })
@@ -136,7 +133,6 @@
       document.getElementById('authSection').style.display = 'none';
       document.getElementById('gameSection').style.display = 'block';
       document.getElementById('welcomeMsg').textContent = `Benvenuto, ${currentUser}! 🛸`;
-      
       socket.emit('join', { username: currentUser });
     }
 
@@ -148,7 +144,6 @@
       }
     }
 
-    // Socket events
     socket.on('currentPlayers', (players) => {
       updatePlayers(players);
       addLog(`Connesso! ${players.length} giocatori online`);
